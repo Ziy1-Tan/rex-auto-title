@@ -101,7 +101,13 @@ if [ "$os" = Darwin ]; then
 </plist>
 EOF
   launchctl bootout "gui/$(id -u)/$label" 2>/dev/null || true
-  launchctl bootstrap "gui/$(id -u)" "$plist"
+  # bootout returns before launchd lets go of the label; bootstrap fails until it does.
+  i=0
+  until launchctl bootstrap "gui/$(id -u)" "$plist" 2>/dev/null; do
+    i=$((i + 1))
+    [ $i -lt 20 ] || fail "launchctl bootstrap $plist failed"
+    sleep 0.5
+  done
   say "Started the login service $label (log: $log)"
 elif command -v systemctl >/dev/null 2>&1; then
   units="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
