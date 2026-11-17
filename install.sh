@@ -3,6 +3,7 @@
 # so every Rex tab is named after what it is doing.
 #
 #   ./install.sh                  install, or update an existing install
+#   curl -fsSL https://raw.githubusercontent.com/Ziy1-Tan/rex-auto-title/main/install.sh | sh
 #   ./install.sh --no-service     copy the file only; run it yourself
 #   REX=/path/to/rex ./install.sh use this rex command
 #
@@ -14,13 +15,16 @@ if [ -z "${HOME:-}" ] || [ ! -d "$HOME" ]; then
   exit 1
 fi
 
-here=$(cd "$(dirname "$0")" && pwd)
+# Run from a checkout, $0 is this file; piped into sh, it is the shell.
+here=""
+if [ -f "$0" ] && [ "$(basename "$0")" = install.sh ]; then here=$(cd "$(dirname "$0")" && pwd); fi
+source_url=${REX_AUTO_TITLE_URL:-https://raw.githubusercontent.com/Ziy1-Tan/rex-auto-title/main/auto_title.lua}
 os=$(uname -s)
 service=1
 for arg in "$@"; do
   case "$arg" in
     --no-service) service=0 ;;
-    -h|--help) sed -n '2,8p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,9p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "install.sh: unknown option $arg" >&2; exit 2 ;;
   esac
 done
@@ -55,7 +59,13 @@ rex=$(find_rex) || fail "can't find the rex command. Open Rex once, or run REX=/
 say "Using rex: $rex"
 
 mkdir -p "$data"
-cp "$here/auto_title.lua" "$script.new" && mv "$script.new" "$script"
+# Piped from curl there is no checkout, so the script comes from GitHub.
+if [ -n "$here" ]; then
+  cp "$here/auto_title.lua" "$script.new"
+else
+  curl -fsSL "$source_url" -o "$script.new" || fail "couldn't download $source_url"
+fi
+mv "$script.new" "$script"
 say "Installed $script"
 
 # sqlite3 reads Codex's thread list; the service needs it on PATH.

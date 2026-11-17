@@ -1,6 +1,8 @@
 #!/bin/sh
 # Remove rex-auto-title: stop its service and delete its files.
 # Tab names it already set stay until you or Rex change them.
+#
+#   curl -fsSL https://raw.githubusercontent.com/Ziy1-Tan/rex-auto-title/main/uninstall.sh | sh
 set -eu
 
 os=$(uname -s)
