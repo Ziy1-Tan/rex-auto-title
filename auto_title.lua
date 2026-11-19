@@ -586,12 +586,29 @@ local function candidates(app, cwd, since)
   return kept
 end
 
+-- Claude Code records each running process in ~/.claude/sessions/<pid>.json,
+-- with the conversation it is on now (it changes on /clear) and the folder
+-- the conversation is filed under.
+M.CLAUDE_SESSIONS = HOME .. "/.claude/sessions"
+function M.claude_live(pid)
+  if not pid then return nil end
+  local rec = decode(read_file(M.CLAUDE_SESSIONS .. "/" .. tostring(pid) .. ".json") or "")
+  if type(rec) ~= "table" or rec.pid ~= pid or type(rec.sessionId) ~= "string"
+     or not rec.sessionId:match("^" .. UUID .. "$") then
+    return nil
+  end
+  return rec.sessionId, type(rec.cwd) == "string" and rec.cwd or nil
+end
+
 local function named_conversation(pane)
+  if pane.app == "claude" then
+    local id, cwd = M.claude_live(pane.pid)
+    if not id then id, cwd = pane.id, pane.cwd end
+    if not id then return nil end
+    return HOME .. "/.claude/projects/" .. claude_slug(cwd) .. "/" .. id .. ".jsonl"
+  end
   if not pane.id then return nil end
   if pane.app == "codex" then return pane.id end
-  if pane.app == "claude" then
-    return HOME .. "/.claude/projects/" .. claude_slug(pane.cwd) .. "/" .. pane.id .. ".jsonl"
-  end
   if pane.app == "pi" then
     if pane.id:find("/", 1, true) then return pane.id end
     for _, path in ipairs(list_dir(HOME .. "/.pi/agent/sessions/" .. pi_slug(pane.cwd), ".jsonl")) do
@@ -704,14 +721,15 @@ local function collect()
     local view = rex.session.view{ session_id = s.session_id }
     for _, w in ipairs(list(view and view.windows)) do
       local focused = w.focused_block_id
-      local is_terminal = false
+      local is_terminal, blocks = false, {}
       for _, layer in ipairs(list(w.layers)) do
         for _, b in ipairs(list(layer.blocks)) do
+          blocks[#blocks + 1] = b.block_id
           if b.block_id == focused and b.creator_name == TERMINAL then is_terminal = true end
         end
       end
       local tab = { session_id = s.session_id, session = s.label, window_id = w.window_id,
-                    label = w.label, block_id = focused }
+                    label = w.label, block_id = focused, blocks = blocks }
       if is_terminal then
         tab.proc = rex.block.call(TERMINAL, "process", { session_id = s.session_id, block_id = focused })
         for _, p in ipairs(chain_of(tab.proc)) do pids[#pids + 1] = p.pid end
@@ -762,9 +780,11 @@ function M.plan(tabs, ps, now, state, sources)
 
   -- A tab whose process couldn't be read this pass keeps its binding: the
   -- lookup fails now and then, and retiring on a miss loses the conversation.
+  -- So does a pane that is only out of focus: it is still open in its tab.
   local groups, open = {}, {}
   for _, tab in ipairs(tabs) do
     open[tab.block_id] = true
+    for _, id in ipairs(list(tab.blocks)) do open[id] = true end
     tab.pane = tab.proc and M.describe(tab.proc, ps) or nil
     local p = tab.pane
     local b = state.bound[tab.block_id]
