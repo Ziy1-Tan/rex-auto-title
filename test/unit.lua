@@ -113,6 +113,29 @@ check("a second chat in the folder takes the new conversation; the first keeps i
   seen(plan(1000, st, tab("A", 11, "codex", "/w/a"), tab("B", 12, "codex", "/w/a", nil, 985))),
   { { "kept", "a - login fix" }, { "started", "a - signup page" } })
 
+-- A session file is written when the agent starts, before anyone has typed, so
+-- taking it then would name the tab after an empty conversation.
+st = {}
+convo("pi", "/w/y", "y1", 1000, nil)
+check("waiting: a session nobody has spoken in yet is not taken",
+  seen(plan(1000, st, tab("Y", 98, "pi", "/w/y"))), { { "waiting", "y" } })
+world["pi\0/w/y"][1].topic = "spoken at last"
+check("started: and is taken once someone speaks",
+  seen(plan(1002, st, tab("Y", 98, "pi", "/w/y"))), { { "started", "y - spoken at last" } })
+
+st = {}
+convo("pi", "/w/x", "x1", 950, "old topic")
+plan(1000, st, tab("X", 97, "pi", "/w/x"))
+convo("pi", "/w/x", "x2", 1010, nil)
+check("waiting: /new to a session nobody has spoken in yet keeps the old name",
+  seen(plan(1020, st, tab("X", 97, "pi", "/w/x"))), { { "kept", "x - old topic" } })
+world["pi\0/w/x"][2].topic = "new topic"
+check("switched: and switches once the new session has something to say",
+  seen(plan(1022, st, tab("X", 97, "pi", "/w/x"))), { { "switched", "x - new topic" } })
+world["pi\0/w/x"][1].t = 1030
+check("switched: the old session written again doesn't take the tab back",
+  seen(plan(1030, st, tab("X", 97, "pi", "/w/x"))), { { "kept", "x - new topic" } })
+
 convo("claude", "/w/b", "b1", 990, "one")
 convo("claude", "/w/b", "b2", 991, "two")
 check("ambiguous: two new chats of one agent in one folder are not guessed at",
@@ -125,19 +148,10 @@ check("named: a conversation on the command line wins, and the other chat then s
   { { "named", "b - resumed one" }, { "started", "b - two" } })
 
 st = {}
-convo("pi", "/w/c", "c1", 950, "first topic")
-plan(1000, st, tab("G", 41, "pi", "/w/c"))
-convo("pi", "/w/c", "c2", 1010, "second topic")
-check("switched: /new moves the only chat to the newer conversation",
-  seen(plan(1020, st, tab("G", 41, "pi", "/w/c"))), { { "switched", "c - second topic" } })
-check("switched: the old conversation is retired", st.retired, { "c1" })
-
-st = {}
 convo("codex", "/w/d", "d1", 950, "closed one")
 plan(1000, st, tab("H", 51, "codex", "/w/d"))
 check("waiting: a closed tab's conversation is retired, not handed to the next chat",
   seen(plan(1100, st, tab("I", 52, "codex", "/w/d", nil, 940))), { { "waiting", "d" } })
-check("a closed tab's binding is dropped", st.bound["block:H"], nil)
 check("waiting: a conversation from before the chat started is not taken",
   seen(plan(1000, {}, tab("Z", 99, "claude", "/w/z"))), { { "waiting", "z" } })
 
@@ -158,21 +172,15 @@ check("unknown: a process without a folder is left alone too",
 st = {}
 convo("claude", "/w/e", "e1", 950, "e topic")
 plan(1000, st, tab("J", 61, "claude", "/w/e"))
-check("another program in the tab: back to its folder, conversation retired",
-  { seen(plan(1100, st, tab("J", 62, "zsh", "/w/e"))), st.retired }, { { { "-", "e" } }, { "e1" } })
+check("another program in the tab: back to its folder",
+  seen(plan(1100, st, tab("J", 62, "zsh", "/w/e"))), { { "-", "e" } })
+check("another program in the tab: a chat started there later doesn't take the old conversation",
+  seen(plan(1200, st, tab("J", 63, "claude", "/w/e"))), { { "waiting", "e" } })
 
 check("a shell is named after its folder; a tab without a terminal is left alone",
   seen(plan(1000, {}, tab("K", 71, "zsh", "/w/f"), { window_id = "window:L", block_id = "block:L" })),
   { { "-", "f" }, { "-", "nil" } })
 
-st = {}
-M.MAX_RETIRED = 3
-for i = 1, 5 do
-  convo("pi", "/w/g", "g" .. i, 1000 + i, "g")
-  plan(1000 + i, st, tab("M", 80 + i, "pi", "/w/g"))
-end
-M.MAX_RETIRED = 200
-check("the retired list stays bounded", #st.retired, 3)
 
 ---------------------------------------------------------------------------
 -- The name a tab gets: "<dir> - <branch> - <topic>"
@@ -221,8 +229,8 @@ check("too long: the folder is shortened first",
 check("too long: then the branch is dropped",
   name(long, "fix the login page now"), "a-really-long-direc… - fix the login page now")
 check("too long: the topic is cut last", name(T .. "/b", string.rep("x", 60)), "b - " .. string.rep("x", 45) .. "…")
-check("CJK counts as two columns, so a long Chinese topic still fits", M.width(name(T .. "/b", string.rep("中", 40))) <= M.MAX_WIDTH and M.width("中文") == 4, true)
-check("width counts emoji as two columns", M.width("✨🚀"), 3)
+check("too long: CJK counts as two columns", name(T .. "/b", string.rep("中", 40)), "b - " .. string.rep("中", 22) .. "…")
+check("too long: emoji count as two columns", name(T .. "/b", string.rep("🚀", 40)), "b - " .. string.rep("🚀", 22) .. "…")
 
 ---------------------------------------------------------------------------
 -- What a conversation is about: cleaning its text for a tab
