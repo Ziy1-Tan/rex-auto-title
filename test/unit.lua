@@ -33,6 +33,8 @@ local function append(path, text)
   f:close()
 end
 local function json(v) return rex.json.encode(v) .. "\n" end
+-- Running claudes are looked up here, never in the real ~/.claude/sessions.
+M.CLAUDE_SESSIONS = T .. "/sessions"
 
 ---------------------------------------------------------------------------
 -- State machine 1: what happens to a tab's label.
@@ -176,6 +178,17 @@ check("another program in the tab: back to its folder",
   seen(plan(1100, st, tab("J", 62, "zsh", "/w/e"))), { { "-", "e" } })
 check("another program in the tab: a chat started there later doesn't take the old conversation",
   seen(plan(1200, st, tab("J", 63, "claude", "/w/e"))), { { "waiting", "e" } })
+
+st = {}
+convo("claude", "/w/g", "g1", 950, "split pane")
+local split = tab("P", 81, "claude", "/w/g")
+split.blocks = { "block:P", "block:Q" }
+plan(1000, st, split)
+local other = tab("Q", 82, "zsh", "/w/g")
+other.window_id, other.blocks = "window:P", { "block:P", "block:Q" }
+plan(1003, st, other)
+check("focus on another pane of the tab: the agent pane keeps its conversation",
+  seen(plan(1006, st, split)), { { "kept", "g - split pane" } })
 
 check("a shell is named after its folder; a tab without a terminal is left alone",
   seen(plan(1000, {}, tab("K", 71, "zsh", "/w/f"), { window_id = "window:L", block_id = "block:L" })),
@@ -325,6 +338,26 @@ check("agent: age comes from ps elapsed time",
   M.describe({ foreground = { pid = 3, name = "codex", cwd = "/w" } },
              M.parse_ps(" 3 1-02:03:04 codex\n")).age, 93784)
 check("agent: no process, nothing to describe", M.describe({}, {}), nil)
+
+---------------------------------------------------------------------------
+-- The conversation a running claude is on, from ~/.claude/sessions/<pid>.json
+
+local LIVE = "c40eb2ba-09ae-47d0-b5d6-9a1fbb77565f"
+write(M.CLAUDE_SESSIONS .. "/4242.json", json({ pid = 4242, sessionId = LIVE, cwd = "/w/live" }))
+local function claude_named(pid, cmdline_id)
+  return M.SOURCES.named({ app = "claude", pid = pid, cwd = "/w/live/sub", id = cmdline_id })
+end
+check("claude live: the session file names the conversation, filed under its folder",
+  claude_named(4242), M.HOME .. "/.claude/projects/-w-live/" .. LIVE .. ".jsonl")
+check("claude live: it beats an ID on the command line, which /clear leaves behind",
+  claude_named(4242, ID), M.HOME .. "/.claude/projects/-w-live/" .. LIVE .. ".jsonl")
+check("claude live: without a session file, the command line still names it",
+  claude_named(4243, ID), M.HOME .. "/.claude/projects/-w-live-sub/" .. ID .. ".jsonl")
+check("claude live: without either, nothing is named", claude_named(4243), nil)
+write(M.CLAUDE_SESSIONS .. "/4244.json", json({ pid = 9999, sessionId = LIVE, cwd = "/w/live" }))
+check("claude live: a file left by another process is ignored", claude_named(4244), nil)
+write(M.CLAUDE_SESSIONS .. "/4245.json", "{not json")
+check("claude live: a half-written file is ignored", claude_named(4245), nil)
 
 rex.exec({ "rm", "-rf", T })
 print(string.format("%d passed, %d failed", passed, failed))
