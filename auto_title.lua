@@ -85,14 +85,14 @@ local function chars(s)
   return out
 end
 
-function M.width(s)
+local function width(s)
   local w = 0
   for _, c in ipairs(chars(s)) do w = w + c[2] end
   return w
 end
 
 local function cut(s, max)
-  if M.width(s) <= max then return s end
+  if width(s) <= max then return s end
   if max <= 0 then return "" end
   local out, w = {}, 0
   for _, c in ipairs(chars(s)) do
@@ -173,13 +173,13 @@ local function compose(dir, branch, topic)
     return table.concat(parts, " - ")
   end
   local name = join(dir, branch, topic)
-  if M.width(name) <= max then return name end
+  if width(name) <= max then return name end
   local short_dir = dir and cut(dir, M.DIR_MAX)
   name = join(short_dir, branch, topic)
-  if M.width(name) <= max then return name end
+  if width(name) <= max then return name end
   if topic and topic ~= "" then
     name = join(short_dir, nil, topic)
-    if M.width(name) <= max then return name end
+    if width(name) <= max then return name end
   end
   return cut(name, max)
 end
@@ -226,7 +226,7 @@ end
 local SEPS = "[%-_./ ]"
 
 local function cut_at_separator(value, max)
-  if M.width(value) <= max then return value end
+  if width(value) <= max then return value end
   local head, w = {}, 0
   for _, c in ipairs(chars(value)) do
     if w + c[2] > max then break end
@@ -248,7 +248,7 @@ local function shorten_branch(branch)
   local max = M.BRANCH_MAX
   branch = tostring(branch or ""):gsub("^" .. SEPS .. "+", ""):gsub(SEPS .. "+$", "")
   if branch == "" then return "" end
-  if M.width(branch) <= max then return branch end
+  if width(branch) <= max then return branch end
   local from = 1
   while true do
     local s, e, letters, digits = branch:find("(%a+)%-(%d+)", from)
@@ -738,7 +738,7 @@ end
 -- A conversation whose tab closed or whose process changed is retired, so a
 -- later chat in that folder doesn't take its name.
 M.SOURCES = { candidates = candidates, named = named_conversation, topic = conversation_topic }
-M.MAX_RETIRED = 200
+local MAX_RETIRED = 200
 -- ps reports age in whole seconds and file times are whole seconds too.
 local SLACK = 5
 
@@ -752,7 +752,7 @@ function M.plan(tabs, ps, now, state, sources)
     if not retired[key] then
       retired[key] = true
       table.insert(state.retired, key)
-      while #state.retired > M.MAX_RETIRED do retired[table.remove(state.retired, 1)] = nil end
+      while #state.retired > MAX_RETIRED do retired[table.remove(state.retired, 1)] = nil end
     end
   end
   local function release(block_id)
@@ -793,11 +793,14 @@ function M.plan(tabs, ps, now, state, sources)
     for _, c in ipairs(all) do
       if not claimed[c.key] and not retired[c.key] then free[#free + 1] = c end
     end
+    -- A session file appears the moment an agent starts, before anyone has
+    -- typed: taking it then names the tab after nothing. Wait for a topic.
+    local function spoken(c) return M.topic(sources.topic(g.app, c.key) or "") ~= "" end
     if #unbound == 1 then
       local p = unbound[1]
       p.via = "waiting"
       for _, c in ipairs(free) do
-        if c.t >= p.start - SLACK then p.key, p.via = c.key, "started" break end
+        if c.t >= p.start - SLACK and spoken(c) then p.key, p.via = c.key, "started" break end
       end
     elseif #unbound > 1 then
       for _, p in ipairs(unbound) do p.via = "ambiguous" end
@@ -806,7 +809,7 @@ function M.plan(tabs, ps, now, state, sources)
       for _, c in ipairs(all) do
         if c.key == p.key then held = c.t end
       end
-      if not held or free[1].t > held then
+      if (not held or free[1].t > held) and spoken(free[1]) then
         retire(p.key)
         p.key, p.via = free[1].key, "switched"
       end
